@@ -68,3 +68,7 @@ cmake --build build/product-webkit --config Debug --target JenaWeb
 CEF 어댑터(`Sources/browser/cef`, `Sources/browser/bridge`)와 빌드 절차([BuildSupport/README.md](BuildSupport/README.md))는 남겨 두었고 `-DJENA_ENGINE=CEF -DCEF_ROOT=...`로 빌드할 수 있다. CEF 프로필(`WebProfiles`)의 로그인은 WebKit으로 이전되지 않는다.
 
 2026-11-14에 CEF 배포본과 과거 검증 자료(`validation/`), CEF 빌드 산출물(`build/product`, `build/product-engine-lock`, 코덱 빌드 기록)을 삭제했다. CEF로 다시 빌드하려면 배포본을 새로 내려받아 `CEF_ROOT`로 지정해야 한다.
+
+## 라이선스
+
+[MIT](LICENSE)

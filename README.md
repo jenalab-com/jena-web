@@ -66,3 +66,7 @@ External app links (mailto and the like), leave-page confirmation, web notificat
 The engine was switched from CEF to WebKit on 2026-11-13. Official CEF builds ship without H.264/AAC, so mp4 video did not play, and a source build with codecs was never completed. The story is in `docs/devlog/2026-11-13-*.md`.
 
 The CEF adapter (`Sources/browser/cef`, `Sources/browser/bridge`) and its build notes ([BuildSupport/README.md](BuildSupport/README.md)) are still in the tree and can be built with `-DJENA_ENGINE=CEF -DCEF_ROOT=...` after downloading a CEF distribution yourself. Sign-ins from the CEF profile (`WebProfiles`) do not carry over to WebKit.
+
+## License
+
+[MIT](LICENSE)
