@@ -203,6 +203,25 @@ final class WebKitBrowserRuntime: NSObject, BrowserRuntime, BrowserPrivacy, Site
         onEvent?(.favicon(page.id, nil))
     }
 
+    /// Loopback, private-range, link-local and single-label names, judged from the host text alone.
+    private static func isInternalHost(_ value: String) -> Bool {
+        let host = value.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+        if host.contains(":") {
+            return host == "::" || host == "::1" || host.hasPrefix("fe80") || host.hasPrefix("fc")
+                || host.hasPrefix("fd") || host.hasPrefix("::ffff:")
+        }
+        if !host.contains(".") || [".localhost", ".local", ".internal", ".lan", ".home.arpa"].contains(where: host.hasSuffix) {
+            return true
+        }
+        let labels = host.split(separator: ".", omittingEmptySubsequences: false)
+        let parts = labels.compactMap { Int($0) }
+        guard labels.count == 4, parts.count == 4 else { return false }
+        switch (parts[0], parts[1]) {
+        case (0, _), (10, _), (127, _), (169, 254), (192, 168), (172, 16...31), (100, 64...127): return true
+        default: return false
+        }
+    }
+
     private func loadFavicon(for page: Page, url: URL) {
         page.faviconTask?.cancel()
         page.faviconTask = Task { [weak self, weak page] in
@@ -214,6 +233,9 @@ final class WebKitBrowserRuntime: NSObject, BrowserRuntime, BrowserPrivacy, Site
             if let fallback { candidates.append(fallback) }
             for candidate in candidates where ["http", "https"].contains(candidate.scheme?.lowercased() ?? "") {
                 guard !Task.isCancelled else { return }
+                // A public page must not make the app itself request local or private addresses.
+                guard let host = candidate.host?.lowercased(),
+                      host == url.host?.lowercased() || !Self.isInternalHost(host) else { continue }
                 do {
                     let request = URLRequest(url: candidate, timeoutInterval: 10)
                     let (bytes, response) = try await URLSession.shared.bytes(for: request)
@@ -336,21 +358,29 @@ final class WebKitBrowserRuntime: NSObject, BrowserRuntime, BrowserPrivacy, Site
     func webViewDidClose(_ webView: WKWebView) { if let page = page(for: webView) { close(page) } }
 
     func webView(_ webView: WKWebView, runJavaScriptAlertPanelWithMessage message: String, initiatedByFrame frame: WKFrameInfo) async {
-        let alert = NSAlert(); alert.messageText = message
+        let alert = dialog(from: frame, text: message)
         _ = await present(alert, over: webView)
     }
     func webView(_ webView: WKWebView, runJavaScriptConfirmPanelWithMessage message: String, initiatedByFrame frame: WKFrameInfo) async -> Bool {
-        let alert = NSAlert(); alert.messageText = message
+        let alert = dialog(from: frame, text: message)
         alert.addButton(withTitle: "확인"); alert.addButton(withTitle: "취소")
         return await present(alert, over: webView) == .alertFirstButtonReturn
     }
     func webView(_ webView: WKWebView, runJavaScriptTextInputPanelWithPrompt prompt: String, defaultText: String?,
                  initiatedByFrame frame: WKFrameInfo) async -> String? {
-        let alert = NSAlert(); alert.messageText = prompt
+        let alert = dialog(from: frame, text: prompt)
         let input = NSTextField(string: defaultText ?? ""); input.frame = NSRect(x: 0, y: 0, width: 300, height: 24)
         alert.accessoryView = input
         alert.addButton(withTitle: "확인"); alert.addButton(withTitle: "취소")
         return await present(alert, over: webView) == .alertFirstButtonReturn ? input.stringValue : nil
+    }
+    /// Page-supplied text is always shown under the name of the site that sent it.
+    private func dialog(from frame: WKFrameInfo, text: String) -> NSAlert {
+        let host = frame.securityOrigin.host
+        let alert = NSAlert()
+        alert.messageText = host.isEmpty ? "이 페이지의 메시지" : "\(host)의 메시지"
+        alert.informativeText = text
+        return alert
     }
     private func present(_ alert: NSAlert, over view: WKWebView) async -> NSApplication.ModalResponse {
         guard let window = view.window else { return alert.runModal() }
@@ -370,7 +400,11 @@ final class WebKitBrowserRuntime: NSObject, BrowserRuntime, BrowserPrivacy, Site
         if type == .camera || type == .cameraAndMicrophone { kinds.append(.camera) }
         if type == .microphone || type == .cameraAndMicrophone { kinds.append(.microphone) }
         // Embedded frames are refused per request and never change a stored site decision.
-        guard frame.isMainFrame, let site = self.origin(of: webView), kinds.allSatisfy({ stored($0, site) == 1 }) else {
+        // Decide by the origin that is asking, and only while it is still the page shown in the tab.
+        let port = origin.port == 0 ? "" : ":\(origin.port)"
+        let requester = SiteSettingsService.origin(from: "\(origin.protocol)://\(origin.host)\(port)")
+        guard frame.isMainFrame, let site = requester, site == self.origin(of: webView),
+              kinds.allSatisfy({ stored($0, site) == 1 }) else {
             fail(webView, "카메라·마이크 요청을 보류했습니다. 사이트 설정에서 허용한 뒤 다시 요청해주세요.")
             return .deny
         }

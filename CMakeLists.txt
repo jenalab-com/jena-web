@@ -26,8 +26,8 @@ if(NOT JENA_ENGINE STREQUAL "CEF")
   set(CMAKE_Swift_LANGUAGE_VERSION 6)
   set(CMAKE_XCODE_ATTRIBUTE_SWIFT_VERSION 6.0)
   add_executable(JenaWeb MACOSX_BUNDLE ${COMMON_SOURCES} Sources/browser/webkit/WebKitBrowserRuntime.swift
-    Resources/search-providers.json Resources/link-policy.js)
-  set_source_files_properties(Resources/search-providers.json Resources/link-policy.js PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
+    Resources/search-providers.json Resources/link-policy.js Resources/JenaWeb.icns)
+  set_source_files_properties(Resources/search-providers.json Resources/link-policy.js Resources/JenaWeb.icns PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
   set_target_properties(JenaWeb PROPERTIES
     MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/Configuration/App-Info-WebKit.plist"
     XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED NO

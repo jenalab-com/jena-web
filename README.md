@@ -1,3 +1,5 @@
+<p align="center"><img src="icon-1024.png" width="128" alt="Jena Web icon"></p>
+
 # Jena Web
 
 **English** | [한국어](README.ko.md)
@@ -37,6 +39,7 @@ cmake --build build/product-webkit --config Debug --target JenaWeb
 - Popups: a popup opened by a click becomes a tab created by the engine, so `window.opener` and the sign-in context survive. Popups without a click are blocked by the engine. Google sign-in on Pinterest was verified through this path.
 - Bookmarks (⌘D to add, ⌘⇧B for the list), history (⌘Y), privacy management, settings for the current site (⌘,).
 - Downloads: pick where to save a file link, then reveal it in Finder when done. Overwriting existing files, resuming, and a download list are not supported yet.
+- Tab icons are fetched by the app. Icons that a public page points at a local or private address are skipped; a page on such an address still gets its own icon.
 
 ## Where data lives
 
