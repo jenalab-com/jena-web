@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "status": "build_recipe_not_built",
+  "cef_version": "156.0.27+ga10dae3+chromium-156.0.8078.88",
+  "cef_commit": "a10dae3408911466b2d90409cc3355cbf6043ffb",
+  "chromium_commit": "8954d18543712dc11b97c3aca0a6e714aa2d7dcd",
+  "chromium_version": "156.0.8078.88",
+  "branch": "8078",
+  "platform": "macos",
+  "architecture": "arm64",
+  "gn_defines": {
+    "proprietary_codecs": true,
+    "ffmpeg_branding": "Chrome",
+    "target_cpu": "arm64",
+    "is_debug": false
+  },
+  "requirements": {
+    "source_availability": "cef_commit_confirmed_via_github_api",
+    "revision_toolchain_requirements": "pending",
+    "distribution_terms": "pending"
+  },
+  "chromium_checkout": "refs/tags/156.0.8078.88",
+  "depot_tools_checkout": "132599ebbd8d22d1b1bd5ea703a6d3bc493edd71",
+  "compatibility_source": "https://raw.githubusercontent.com/chromiumembedded/cef/a10dae3408911466b2d90409cc3355cbf6043ffb/CHROMIUM_BUILD_COMPATIBILITY.txt"
+}

@@ -1,0 +1,1 @@
+static constexpr const char *kNavigationLinkScript = R"JENASCRIPT(@LINK_SCRIPT@)JENASCRIPT";

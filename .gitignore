@@ -1,0 +1,6 @@
+/build/
+.DS_Store
+__pycache__/
+*.pyc
+# Manual folder snapshots from before the project used git.
+/docs/backups/

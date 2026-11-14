@@ -1,0 +1,5 @@
+[
+  {"id":"google","name":"Google","web":"https://www.google.com/search","images":"https://www.google.com/search?udm=2"},
+  {"id":"bing","name":"Bing","web":"https://www.bing.com/search","images":"https://www.bing.com/images/search"},
+  {"id":"naver","name":"네이버","web":"https://search.naver.com/search.naver","images":"https://search.naver.com/search.naver?where=image"}
+]
