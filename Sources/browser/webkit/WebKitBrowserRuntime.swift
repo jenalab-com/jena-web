@@ -203,25 +203,6 @@ final class WebKitBrowserRuntime: NSObject, BrowserRuntime, BrowserPrivacy, Site
         onEvent?(.favicon(page.id, nil))
     }
 
-    /// Loopback, private-range, link-local and single-label names, judged from the host text alone.
-    private static func isInternalHost(_ value: String) -> Bool {
-        let host = value.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
-        if host.contains(":") {
-            return host == "::" || host == "::1" || host.hasPrefix("fe80") || host.hasPrefix("fc")
-                || host.hasPrefix("fd") || host.hasPrefix("::ffff:")
-        }
-        if !host.contains(".") || [".localhost", ".local", ".internal", ".lan", ".home.arpa"].contains(where: host.hasSuffix) {
-            return true
-        }
-        let labels = host.split(separator: ".", omittingEmptySubsequences: false)
-        let parts = labels.compactMap { Int($0) }
-        guard labels.count == 4, parts.count == 4 else { return false }
-        switch (parts[0], parts[1]) {
-        case (0, _), (10, _), (127, _), (169, 254), (192, 168), (172, 16...31), (100, 64...127): return true
-        default: return false
-        }
-    }
-
     private func loadFavicon(for page: Page, url: URL) {
         page.faviconTask?.cancel()
         page.faviconTask = Task { [weak self, weak page] in
@@ -234,11 +215,10 @@ final class WebKitBrowserRuntime: NSObject, BrowserRuntime, BrowserPrivacy, Site
             for candidate in candidates where ["http", "https"].contains(candidate.scheme?.lowercased() ?? "") {
                 guard !Task.isCancelled else { return }
                 // A public page must not make the app itself request local or private addresses.
-                guard let host = candidate.host?.lowercased(),
-                      host == url.host?.lowercased() || !Self.isInternalHost(host) else { continue }
+                guard await FaviconFetchPolicy.allows(candidate, pageHost: url.host) else { continue }
                 do {
                     let request = URLRequest(url: candidate, timeoutInterval: 10)
-                    let (bytes, response) = try await URLSession.shared.bytes(for: request)
+                    let (bytes, response) = try await URLSession.shared.bytes(for: request, delegate: FaviconRedirectGuard(pageHost: url.host))
                     guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
                           response.expectedContentLength <= 1_048_576 else { continue }
                     var imageBytes = Data()
@@ -456,5 +436,86 @@ final class WebKitBrowserRuntime: NSObject, BrowserRuntime, BrowserPrivacy, Site
             results.append("HTTP 캐시: 삭제 완료")
         }
         return results.joined(separator: "\n")
+    }
+}
+
+// MARK: Favicon fetch policy
+
+/// The app fetches tab icons itself, so a public page must not be able to aim that request
+/// at local or private addresses. Checked for the first address and again for every redirect.
+enum FaviconFetchPolicy {
+    static func allows(_ url: URL, pageHost: String?) async -> Bool {
+        guard ["http", "https"].contains(url.scheme?.lowercased() ?? ""), let host = url.host?.lowercased(), !host.isEmpty else { return false }
+        // The page's own host was already loaded by the user, wherever it lives.
+        if host == pageHost?.lowercased() { return true }
+        if isInternalHost(host) { return false }
+        return await !resolvesToInternal(host)
+    }
+
+    /// Loopback, private-range, link-local and single-label names, judged from the host text alone.
+    static func isInternalHost(_ value: String) -> Bool {
+        var host = value.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+        while host.hasSuffix(".") { host.removeLast() }
+        var v6 = in6_addr()
+        if inet_pton(AF_INET6, host, &v6) == 1 { return isInternal(v6: withUnsafeBytes(of: v6) { Array($0) }) }
+        if host.contains(":") { return true }
+        // inet_aton reads every IPv4 spelling the network stack accepts: short, hex, octal, single number.
+        var v4 = in_addr()
+        if inet_aton(host, &v4) != 0 { return isInternal(v4: UInt32(bigEndian: v4.s_addr)) }
+        return !host.contains(".") || [".localhost", ".local", ".internal", ".lan", ".home.arpa"].contains(where: host.hasSuffix)
+    }
+
+    static func isInternal(v4 ip: UInt32) -> Bool {
+        let (first, second) = (ip >> 24, (ip >> 16) & 0xff)
+        switch (first, second) {
+        case (0, _), (10, _), (127, _), (169, 254), (192, 168), (172, 16...31), (100, 64...127): return true
+        default: return first >= 224
+        }
+    }
+
+    static func isInternal(v6 bytes: [UInt8]) -> Bool {
+        guard bytes.count == 16 else { return true }
+        let embedded = UInt32(bytes[12]) << 24 | UInt32(bytes[13]) << 16 | UInt32(bytes[14]) << 8 | UInt32(bytes[15])
+        if bytes[0..<10].allSatisfy({ $0 == 0 }) {
+            if bytes[10] == 0xff && bytes[11] == 0xff { return isInternal(v4: embedded) }   // ::ffff:a.b.c.d
+            if bytes[10] == 0 && bytes[11] == 0 { return true }                             // ::, ::1, ::a.b.c.d
+        }
+        if bytes[0] == 0x00 && bytes[1] == 0x64 && bytes[2] == 0xff && bytes[3] == 0x9b && bytes[4..<12].allSatisfy({ $0 == 0 }) {
+            return isInternal(v4: embedded)                                                 // NAT64 64:ff9b::/96
+        }
+        return (bytes[0] == 0xfe && bytes[1] & 0xc0 == 0x80) || bytes[0] & 0xfe == 0xfc || bytes[0] == 0xff
+    }
+
+    /// True when the name does not resolve, or any address it resolves to is internal.
+    static func resolvesToInternal(_ host: String) async -> Bool {
+        await Task.detached(priority: .utility) {
+            var hints = addrinfo(); hints.ai_socktype = SOCK_STREAM
+            var result: UnsafeMutablePointer<addrinfo>?
+            guard getaddrinfo(host, nil, &hints, &result) == 0, result != nil else { return true }
+            defer { freeaddrinfo(result) }
+            var cursor = result
+            while let info = cursor {
+                if info.pointee.ai_family == AF_INET, let address = info.pointee.ai_addr {
+                    let ip = address.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { UInt32(bigEndian: $0.pointee.sin_addr.s_addr) }
+                    if isInternal(v4: ip) { return true }
+                } else if info.pointee.ai_family == AF_INET6, let address = info.pointee.ai_addr {
+                    let bytes = address.withMemoryRebound(to: sockaddr_in6.self, capacity: 1) { withUnsafeBytes(of: $0.pointee.sin6_addr) { Array($0) } }
+                    if isInternal(v6: bytes) { return true }
+                }
+                cursor = info.pointee.ai_next
+            }
+            return false
+        }.value
+    }
+}
+
+/// Refuses a redirect whose target fails the same policy as the first request.
+final class FaviconRedirectGuard: NSObject, URLSessionTaskDelegate, Sendable {
+    private let pageHost: String?
+    init(pageHost: String?) { self.pageHost = pageHost }
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest) async -> URLRequest? {
+        guard let url = request.url, await FaviconFetchPolicy.allows(url, pageHost: pageHost) else { return nil }
+        return request
     }
 }
